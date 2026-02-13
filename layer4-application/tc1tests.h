@@ -1,1 +1,0 @@
-int tc1ExecuteCommands(char *command, char **num, int command_part_count);

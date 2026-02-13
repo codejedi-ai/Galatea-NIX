@@ -1,6 +1,5 @@
 #include "syscall.h"
 #include "processes.h"
-#include "nameserver.h"
 #include "asm.h"
 #include "rpi.h"
 #include "util.h"

@@ -2,16 +2,7 @@
 #include "rpi.h"
 #include "asm.h"
 #include "syscall.h"
-
-#include "custstr.h"
-#include "nameserver.h"
-#include "gameserver.h"
-#include "clockserver.h"
-
-#include "systimer.h"
-#include "tests/tc1tests.h"
-#include "tc1/marklin_worker.h"
-#include "ioserver.h"
+#include "util.h"
 
 #define DISPLAY 1
 /*
@@ -45,32 +36,12 @@ void init_trains(){
 
 // new paradymn, run tests for each k# assignment (other than 3) before running the shell
 void init_solonoids() // First task as dictated in the reqs
-{	// need to set the timer interrupt
-	RegisterAs("init_solonoids");
-	#define SWITCH_COUNT 18
-	int tid;
-	//void set_solonoid(int marklin_worker_tid, uint8_t sol_id, char state);
-	int marklin_worker_tid = WhoIs("marklin_worker");
-  // set all the turnabouts to straight
-	for (uint8_t i = 1; i <= SWITCH_COUNT; i ++){
-		// set_solonoid(marklin_worker_tid, i, 'S');
-		// this command only enqueues the switches
-	}
-	// uart_printf(CONSOLE,"\033[%u;%uHSWITCHES ALL STRAIGHT:",TOP_ROW + COMMAND_ROW, LEFT_COL + 1);
-	// set all the turnabouts to curved
-	for (uint8_t i = 1; i <= SWITCH_COUNT; i ++){
-		set_solonoid(marklin_worker_tid, i, 'C');
-	}
-	/*
-	set_solonoid(marklin_worker_tid, 0x99, 'S');
-	set_solonoid(marklin_worker_tid, 0x9a, 'C');
-	set_solonoid(marklin_worker_tid, 0x9b, 'S');
-	set_solonoid(marklin_worker_tid, 0x9c, 'C');
-	*/
-	set_solonoid(marklin_worker_tid, 0x99, 'C');
-	set_solonoid(marklin_worker_tid, 0x9a, 'S');
-	set_solonoid(marklin_worker_tid, 0x9b, 'C');
-	set_solonoid(marklin_worker_tid, 0x9c, 'S');
-	// int speed_measuring_tid = Create(3, speed_gather);
+{	
+	// Simplified version without service dependencies
 	Exit();
+}
+
+void first_user_task() {
+    uart_printf(CONSOLE, "Galatea-NIX kernel ready.\r\n");
+    Exit();
 }

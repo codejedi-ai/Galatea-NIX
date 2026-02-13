@@ -60,7 +60,7 @@ Headers (e.g. `asm.h`) live in **layer1-processes** and declare the assembly ent
 | **syscall.c / .h** | Syscall dispatch (e.g. Create, Send, Receive, Reply, Yield, Exit), scheduler (priority heap), `Handle`/`HandleASYNC`, interrupt handling (timer, UART). |
 | **rpi.c / .h** | Raspberry Pi HW: GPIO, UART (console + optional second line), system timer registers. |
 | **gic.c / .h** | Generic Interrupt Controller: route, enable, ack, “active” interrupt state. |
-| **systimer.c / .h** | Kernel timer: `get_timerLO/HI`, `set_timerC3`, `resetCS` for clock server. |
+| **systimer.c / .h** | Kernel timer: `get_timerLO/HI`, `set_timerC3`, `clear_timer_status` for clock server. |
 | **malloc.c** | Kernel heap allocator (used for process stacks, etc.). |
 | **util.c / .h** | Helpers: `memset`, `memcpy`, `i2a`, `ui2a`, print helpers. |
 | **custstr.c / .h** | Custom string: `strcmp_ret`, `parse_char_arr`, `cust_strcpy`, `strcat_cust`, `is_empty`. |

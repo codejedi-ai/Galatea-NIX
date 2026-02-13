@@ -3,7 +3,6 @@
 #include "asm.h"
 #include "syscall.h"
 #include "util.h"
-#include "nameserver.h"
 #include "custstr.h"
 /*
 These are the most essential terminal control sequences that you will need for your train program.

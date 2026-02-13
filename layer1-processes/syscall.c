@@ -1,12 +1,27 @@
 #include "syscall.h"
 #include "processes.h"
-#include "nameserver.h"
 #include "asm.h"
 #include "rpi.h"
 #include "util.h"
 #include "custstr.h"
-# include "systimer.h"
+#include "systimer.h"
 #include "gic.h"
+
+// Forward declarations for functions that may be missing
+extern void EXIT();
+extern void setActiveInterrupt(uint32_t interruptid);
+extern void INTERRUPT_CLEAR_ACTIVE_REGS(uint32_t interruptid);
+extern uint32_t readInterruptId();
+extern uint32_t* get_RIS(uint32_t line);
+extern uint32_t* get_ICR(size_t line);
+extern unsigned char uart_getc_modified(size_t line);
+extern uint32_t get_CTS(size_t line);
+extern void clear_GICC_EOIR(uint16_t interrupt_id);
+extern uint32_t checkActiveInterrupt(uint32_t interrupt_id);
+extern int KernelCreate(uint64_t priority, void (*function)(), int parent);
+extern int min(int a, int b);
+extern void recieve_helper(int PID);
+extern void handlerExceptionHelper(uint64_t esr_el1);
 #define DEBUG 5
 #define DEBUG_EXIT 1
 # define READY 0
@@ -26,9 +41,9 @@ uint8_t compare_state(struct state a, struct state b)
 		return 2;
 	else
 	{
-		if(a.time == -1)
+		if(a.time == (uint64_t)-1)
 			return 2;
-		else if (b.time == -1)
+		else if (b.time == (uint64_t)-1)
 			return 1;
 		else if (a.time < b.time)
 			return 1;
@@ -68,10 +83,10 @@ void bubbleDown_state_heap( struct MinHeapState *h, int i)
 	int right = 2 * i + 2;
 	int smallest = i;
 	// if there is no child
-	if (left >= h->size && right >= h->size)
+	if ((unsigned int)left >= h->size && (unsigned int)right >= h->size)
 		return;
 	// if there is only left child
-	if (left < h->size && right >= h->size && compare_state(h->harr[left], h->harr[smallest]) == 1)
+	if (left < h->size && (unsigned int)right >= h->size && compare_state(h->harr[left], h->harr[smallest]) == 1)
 		smallest = left;
 	// no need to look for the case of only right child as it is a complete binary tree, no right child implies no left child implies no child
 	// this is given there are two children
@@ -108,7 +123,7 @@ uint8_t isEmpty_state_heap( struct MinHeapState *h)
 struct state extractMin_state_heap( struct MinHeapState *h)
 {
 	if (h->size <= 0)
-		return (struct state){-1,-1};
+		return (struct state){-1, 0, 0}; // Initialize all fields of the struct
 	if (h->size == 1)
 	{
 		h->size--;
@@ -131,15 +146,15 @@ struct state extractMin_state_heap( struct MinHeapState *h)
 // scrSchedule(pid, priority)
 void scrSchedule(int pid, uint64_t priority)
 {
-	
-	struct state currItem = {pid, priority, get_timerHI() << 32 + get_timerLO()};
+
+	struct state currItem = {pid, priority, ((uint64_t)get_timerHI() << 32) + get_timerLO()};
 	/*
 	struct state nextItem;
 	int insert = 0;
 	for (int i = 0; i < NUMPROCS; i++) {
 		if (READY_QUEUE[i].pid == 0) {
 			READY_QUEUE[i] = currItem;
-			return 0;	
+			return 0;
 		}
 		else if (READY_QUEUE[i].priority > priority) {
 			insert = 1;
@@ -153,7 +168,6 @@ void scrSchedule(int pid, uint64_t priority)
 	*/
 	// put the process into the heap
 	insertKey_state_heap(&READY_HEAP, currItem);
-	return 0;
 }
 
 // scrSchedule(pid, priority)
@@ -272,7 +286,6 @@ void InitSys(void* reg)
 		
 		
 	}
-	return 0;
 }
 
 void updateRunTimer(){
@@ -361,7 +374,7 @@ void ExceptionASYNC(uint64_t esr_el1){
 			// set the next timer
 			// get the time
 			set_timerC3(get_timerLO() + 10000);
-			resetCS(3);
+			clear_timer_status();
 			unblock_return(CLOCKINTID, 1);
 			break;
 		case UARTINTER:
@@ -496,10 +509,10 @@ void send_helper(){
 	# endif
 	// Debug
 	int p = PID - 1;
-	int tid = PROCS[p].registervalues[0];
-	char *msg = PROCS[p].registervalues[1];
+	int tid = (int)PROCS[p].registervalues[0];
+	char *msg = (char *)PROCS[p].registervalues[1];
 	uint64_t msglen = PROCS[p].registervalues[2];
-	char *reply = PROCS[p].registervalues[3];
+	char *reply = (char *)PROCS[p].registervalues[3];
 	uint64_t replylen = PROCS[p].registervalues[4];
 
 	// This puts the message into the messageDS of the target task
@@ -557,9 +570,9 @@ void recieve_helper(int PID){
 	// uart_printf(CONSOLE, "head is %u, tail is %u\r\n", head, tail);
 	# endif
 	
-	int *tid =  PROCS[p].registervalues[0]; // This is a memory address for the TID
-	char *msg = PROCS[p].registervalues[1]; // this is another memory address for the message
-	int msglen = PROCS[p].registervalues[2];
+	int *tid =  (int *)PROCS[p].registervalues[0]; // This is a memory address for the TID
+	char *msg = (char *)PROCS[p].registervalues[1]; // this is another memory address for the message
+	int msglen = (int)PROCS[p].registervalues[2];
 	# if DEBUG == 2
 	// print therefore blocked
 	
@@ -715,7 +728,7 @@ void handlerExceptionHelper(uint64_t esr_el1)
 			break;
 		case 2: // Create
 			scrSchedule(PID, PROCS[p].priority);
-			int ret = KernelCreate(PROCS[p].registervalues[0], PROCS[p].registervalues[1], PID);
+			int ret = KernelCreate((uint64_t)PROCS[p].registervalues[0], (void(*)())PROCS[p].registervalues[1], PID);
 			PROCS[p].registervalues[0] = ret;
 			break;
 		case 3: // mytid
@@ -803,7 +816,7 @@ void handlerExceptionHelper(uint64_t esr_el1)
 			break;
 		case 9: // Create args
 			scrSchedule(PID, PROCS[p].priority);
-			uint64_t retd = KernelCreate(PROCS[p].registervalues[0], PROCS[p].registervalues[1], PID);
+			uint64_t retd = KernelCreate((uint64_t)PROCS[p].registervalues[0], (void(*)())PROCS[p].registervalues[1], PID);
 			
 			if (PROCS[p].registervalues[2] > 0) {
 				// theis is create with arguments
@@ -823,12 +836,12 @@ void handlerExceptionHelper(uint64_t esr_el1)
 						for (int j = 0; j < stack_offset; j++) {
 							newsp[j] = ((int64_t *)PROCS[p].registervalues[3])[j + 8];
 						}
-						PROCS[retd - 1].stackpointer = (int64_t)newsp;
+						PROCS[retd - 1].stackpointer = (void *)newsp;
 					}
 				}
 			}
-		
-			PROCS[p].registervalues[0] = ret;
+
+			PROCS[p].registervalues[0] = retd;
 			break;
 		case 10: // get the interrupt
 			// p is the current PID - 1
@@ -885,7 +898,7 @@ void handlerExceptionHelper(uint64_t esr_el1)
 void Schedule()
 {
 	PID = scrPick();
-	if (PID == -1) return 0;
+	if ((int32_t)PID == -1) return;
 	
 	int p = PID - 1;
 	// We need to reset the EL1 stack pointer as well
@@ -905,7 +918,6 @@ void Schedule()
 	PROCS[p].waketime = get_timerLO();
 
 	Begin(&PROCS[p].registervalues[0], PROCS[p].pcpointer, PROCS[p].stackpointer, PROCS[p].pstate); // found in asm.h
-	return 0;
 }
 // MINHEAP===================================== GET THE SMALLEST AVAILABLE PID
 
@@ -935,10 +947,10 @@ void bubbleDown( struct MinHeap *h, int i)
 	int right = 2 * i + 2;
 	int smallest = i;
 	// if there is no child
-	if (left >= h->size && right >= h->size)
+	if ((unsigned int)left >= h->size && (unsigned int)right >= h->size)
 		return;
 	// if there is only left child
-	if (left < h->size && right >= h->size && h->harr[left] < h->harr[smallest])
+	if (left < h->size && (unsigned int)right >= h->size && h->harr[left] < h->harr[smallest])
 		smallest = left;
 	// no need to look for the case of only right child as it is a complete binary tree, no right child implies no left child implies no child
 	// this is given there are two children
@@ -1037,20 +1049,20 @@ void Kill(int p) // p is the position of the process in the PROCS array
 // to put a specific message in the messageDS of the targeted task. 
 int Send(int tid, const char *msg, int msglen, char *reply, int replylen){
 	asm("svc 5");
-	return;
+	return 0;
 }
 
 int Receive(int *tid, char *msg, int msglen){
 	asm("svc 6");
-	return;
+	return 0;
 }
 int Reply( int tid, void *reply, int replylen ){
 	asm("svc 7");
-	return;
+	return 0;
 }
 int MyPriority(){
 	asm("svc 8");
-	return;
+	return 0;
 }
 // helper functions 
 // mailbox is meant to get the messageDS array of the process. 
@@ -1060,35 +1072,46 @@ int MyPriority(){
 int MyTid()
 {
 	asm("svc 3");
-	return;
+	return 0;
 }
 int MyParentTid()
 {
 	asm("svc 4");
-	return;
+	return 0;
 }
 
 int Create(uint64_t priority, void (*function)()) { // Returns to the Kernel, then calls KernelCreate
 	asm("svc 2"); // The Kernel needs to put the pid in x0
-	return;
+	return 0;
 }
 
 int CreateArgs(uint64_t priority, void (*function)(), uint64_t argsno, uint64_t *args) { // Returns to the Kernel, then calls KernelCreate
+	(void)priority;
+	(void)function;
+	(void)argsno;
+	(void)args;
 	asm("svc 9"); // The Kernel needs to put the pid in x0
-	return;
+	return 0;
 }
 int AwaitEvent(int eventType){ // Returns to the Kernel, then calls KernelCreate
+	(void)eventType;
 	asm("svc 10"); // The Kernel needs to put the pid in x0
-	return;
+	return 0;
 }
 int GetRuntime(){ // Returns to the Kernel, then calls KernelCreate
 	asm("svc 11"); // The Kernel needs to put the pid in x0
-	return;
+	return 0;
 }
 int GetKernelRuntime(){ // Returns to the Kernel, then calls KernelCreate
 	asm("svc 12"); // The Kernel needs to put the pid in x0
-	return;
+	return 0;
 }
+// Stub implementation for Deregister - to be implemented when event registration is added
+void Deregister() {
+	// TODO: Clean up any event registrations before exit
+	// Currently empty as event registration system is not yet implemented
+}
+
 // Why is exit SCV 0 
 // The difference between an exit and a Yield is Exit do not return back to the priority READY_QUEUE where Yield returns the program back into the priority READY_QUEUE to be ran again. 
 void Exit()

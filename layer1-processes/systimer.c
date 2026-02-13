@@ -46,7 +46,7 @@ void set_timerC3(unsigned int value){
 uint32_t get_timerC3(){
     return SYSTIMER_REG(SYSTIME_C3);
 }
-void resetCS(uint32_t value){
-    SYSTIMER_REG(SYSTIME_CS) = SYSTIMER_REG(SYSTIME_CS) & (1 << value);
+void clear_timer_status(){
+    SYSTIMER_REG(SYSTIME_CS) = 0;
 }
 // Any registers that can be set by the deivce is set as volitilelo / 1e6
