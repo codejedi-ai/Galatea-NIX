@@ -3,9 +3,9 @@
 #include "../../layer1-processes/syscall.h"
 #include "../../layer1-processes/rpi.h"
 
-// ==================== Simple Two-Thread Communication Test ====================
+// ==================== Test #1: Simple Two-Thread Message Passing ====================
 
-void thread_2() {
+void thread_2(void) {
     int sender_tid;
     char msg_buf[64];
     char reply_msg[64] = "message_1";
@@ -28,7 +28,7 @@ void thread_2() {
     Exit();
 }
 
-void thread_1() {
+void thread_1(void) {
     char send_msg[64] = "hello";
     char reply_buf[64];
     
@@ -46,35 +46,61 @@ void thread_1() {
     Exit();
 }
 
+// ==================== Test #2: IPC (Send/Receive/Reply, shared memory) ====================
+
+static void ipc_receiver_l2(void) {
+    int sender;
+    char buf[32];
+    *(int *)GetProcessSharedMem() = MyTid();
+    Receive(&sender, buf, sizeof(buf));
+    Reply(sender, "ack", 4);
+    Exit();
+}
+
+static void ipc_sender_l2(void) {
+    char buf[32];
+    int receiver_tid = *(int *)GetProcessSharedMem();
+    int r = Send(receiver_tid, "ping", 5, buf, sizeof(buf));
+    if (r >= 0)
+        uart_printf(CONSOLE, "  \033[1;32m[  OK  ]\033[0m Test #2: IPC (inter-process): Send/Receive/Reply\r\n");
+    else
+        uart_printf(CONSOLE, "  \033[1;31m[ FAIL ]\033[0m Test #2: IPC Send returned %d\r\n", r);
+    Exit();
+}
+
+static void run_test2_ipc(void) {
+    uart_printf(CONSOLE, "  Test #2: IPC:\r\n");
+    uart_printf(CONSOLE, "    \033[1;34m[ INFO ]\033[0m Testing IPC (Send/Receive/Reply)...\r\n");
+    Create(5, ipc_receiver_l2);
+    Yield();
+    Create(0, ipc_sender_l2);
+    for (int i = 0; i < 20; i++) Yield();
+    uart_printf(CONSOLE, "    \033[1;32m[  OK  ]\033[0m IPC tests passed\r\n");
+}
+
 // ==================== Test Runner ====================
 
-void run_layer2_tests() {
+void run_layer2_tests(void) {
     uart_printf(CONSOLE, "\r\n");
-    uart_printf(CONSOLE, "\033[1;36m[====] Galatea-NIX Layer 2 IPC Tests\033[0m\r\n");
-    uart_printf(CONSOLE, "\r\n");
+    uart_printf(CONSOLE, "\033[1;36m[====] Galatea-NIX Layer 2 IPC Tests:\033[0m\r\n");
     
+    uart_printf(CONSOLE, "  Test #1: Message passing:\r\n");
     uart_printf(CONSOLE, "\033[1;33m[ .... ]\033[0m Creating receiver task (Thread 2)...\r");
-    // Create Thread 2 (receiver) - lower priority
     int tid2 = Create(5, thread_2);
     uart_printf(CONSOLE, "\033[1;32m[  OK  ]\033[0m Created receiver task (Thread 2, TID=%d)\r\n", tid2);
-    
-    // Yield once to let Thread 2 block on Receive
     Yield();
-    
     uart_printf(CONSOLE, "\033[1;33m[ .... ]\033[0m Creating sender task (Thread 1)...\r");
-    // Create Thread 1 (sender) - HIGHEST priority (0) to run immediately
     int tid1 = Create(0, thread_1);
     uart_printf(CONSOLE, "\033[1;32m[  OK  ]\033[0m Created sender task (Thread 1, TID=%d)\r\n", tid1);
-    
-    // Yield many times to let them complete
     uart_printf(CONSOLE, "\033[1;34m[ INFO ]\033[0m Running message passing tests...\r\n");
-    for (int i = 0; i < 50; i++) {
-        Yield();
-    }
-    
+    for (int i = 0; i < 50; i++) Yield();
+    (void)tid1;
+    (void)tid2;
+
+    run_test2_ipc();
+
     uart_printf(CONSOLE, "\r\n");
-    uart_printf(CONSOLE, "\033[1;32m[  OK  ]\033[0m All Layer 2 tests passed\r\n");
+    uart_printf(CONSOLE, "  \033[1;32m[  OK  ]\033[0m All Layer 2 tests passed\r\n");
     uart_printf(CONSOLE, "\r\n");
-    
     Exit();
 }

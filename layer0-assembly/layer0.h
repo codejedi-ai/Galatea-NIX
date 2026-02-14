@@ -1,5 +1,5 @@
 /*
- * Layer 0: Declarations for assembly functions (syscall stubs).
+ * Layer 0: Declarations for assembly functions (spinlock + syscall stubs).
  * All ASM is implemented in layer0-assembly .S files; no inline ASM in C.
  */
 
@@ -7,6 +7,10 @@
 #define _LAYER0_H_ 1
 
 #include <stdint.h>
+
+/* ----- Spinlock (ARM64 LDXR/STXR) ----- */
+void spinlock_acquire(volatile int *lock);
+void spinlock_release(volatile int *lock);
 
 /* ----- Syscall stubs (svc 0..14); args in x0–x4, return in x0 ----- */
 void asm_svc_0(void);

@@ -1,20 +1,7 @@
 #ifndef _syscall_h_
 #define _syscall_h_ 1
+#include "config.h"
 #include "asm.h"
-#define QUEUESIZE 255
-#define NUMPROCS 20
-#define NPROCESSES 8
-#define SHARED_MEM_PER_PROCESS 4096
-#define MAXINT 2147483647
-#define MININT -2147483648
-#define MAXEVENT 1025
-#define CLOCKINTID 99
-#define UARTINTER 153
-
-# define RITC 6
-# define TXIC 5
-# define RXIC 4
-# define CTSMIM 1
 
 // Forward declarations for kernel-internal data structures
 // (actual definitions are in syscall.c)

@@ -5,12 +5,26 @@
 #include "util.h"
 #include "gic.h"
 #include "malloc.h"
-#define HEAP_ADDR 0x1000000
-// === Insert any helper functions here
-// one word is 8 bytes
-int setmemsize = 1024;
-// uint64_t freeListRoot = (uint64_t)(uint64_t *)HEAP_ADDR;
-uint64_t freeListRoot = HEAP_ADDR; // this variable is the pointer to the root of the list
+
+/* Heap arena in BSS so it is in RAM (0x1000000 is not valid on QEMU virt where RAM is at 0x40000000+). */
+static uint8_t heap_arena[HEAP_SIZE_DEFAULT] __attribute__((aligned(8)));
+
+uint64_t freeListRoot;  /* points to first free block; each block is [size (8B)][next (8B)] then payload */
+
+/* Initialize heap: one free block at heap_start with [size][next]=[heap_size, 0]. Call once at boot. */
+void malloc_init(uint64_t heap_start, uint64_t heap_size)
+{
+	freeListRoot = heap_start;
+	*(uint64_t *)heap_start = heap_size;   /* block size in bytes */
+	*(uint64_t *)(heap_start + 8) = 0;     /* next = NULL */
+}
+
+/* Initialize heap using BSS arena. Call from InitSys instead of malloc_init(HEAP_ADDR_DEFAULT, ...). */
+void malloc_init_default(void)
+{
+	malloc_init((uint64_t)heap_arena, (uint64_t)sizeof(heap_arena));
+}
+
 uint64_t *mymalloc(uint64_t size)
 {
   uint64_t wordNeedAllocateinBytes = 8 * (size + 1); // bytes
@@ -121,84 +135,3 @@ void myfree(uint64_t *address)
     *((uint64_t *)FLH + 1) = *(1 + address); // need to know th evalue of the next
   }
 }
-/*
-void printMemory()
-{
-  cout << "===== Printing Memory =====" << endl;
-  for (int i = 0; i <= setmemsize / 8 + 1; i++)
-  {
-    uint64_t *ptr = (TheArena + i);
-
-    cout << ptr << " in dec: " << *ptr << " in hex: " << (uint64_t *)*ptr << "\n";
-  }
-}
-
-void printFreeList()
-{
-  while (freeListRoot != 0)
-  {
-    cout << (uint64_t *)freeListRoot << endl;
-    freeListRoot = *((uint64_t *)freeListRoot + 1);
-  }
-}
-*/
-int malloctest() {
-    uint64_t result = 0;
-    uint64_t* one = mymalloc(241);
-    mymalloc(241); // Allocate but don't use
-    myfree(one);
-
-    uint64_t* evil = mymalloc(240);
-    uint64_t* good = mymalloc(1);
-    evil[3] = 240; 
-    good[0] = evil[3]+1;
-    myfree(evil);
-
-    uint64_t* cs[241];
-    for(int i=0; i<241; i++) {
-        cs[i] = mymalloc(1);
-        cs[i][0] = 1;
-    }
-    uint64_t* big = mymalloc(1000);
-    for(int i=0; i<1000; i++) {
-        big[i] = 1000;
-    }
-    for(int i=0; i<241; i++) {
-        result += cs[i][0];
-        myfree(cs[i]);
-    }
-
-    result += good[0];
-    myfree(good);
-
-    // Returns nonzero exit code if the result is wrong
-    return result != 241*2;
-}
-/*
-int main2()
-{
-  uint64_t *addr = mymalloc(4);
-  uint64_t *addr_1 = mymalloc(4);
-  uint64_t *addr_2 = mymalloc(4);
-  uint64_t *addr_3 = mymalloc(4);
-
-  uint64_t *addr_4 = mymalloc(4);
-  printMemory();
-  myfree(addr_1);
-  printMemory();
-  myfree(addr_2);
-  printMemory();
-
-  uint64_t *addr_5 = mymalloc(8);
-  cout << "Special case " << endl;
-  for(int i = 0; i < 8; i ++){
-    addr_5[i] = -1;
-  }
-  printMemory();
-  printFreeList();
-  // Returns nonzero exit code if the result is wrong
-  return addr == 0;
-
- main2();
-}
-  */

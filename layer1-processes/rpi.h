@@ -29,11 +29,6 @@ void uart_config_and_enable_marklin();
 int uart_rxc(size_t line);
 int uart_cts(size_t line);
 
-uint32_t stimer_getlo();
-uint32_t stimer_gethi();
-// Change these later to do interrupts as they are hardcoded
-void stimer_snooze();
-void stimer_wake();
-
+#include "timer/stimer.h"
 
 #endif /* rpi.h */

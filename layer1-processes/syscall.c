@@ -3,15 +3,13 @@
 #include "asm.h"
 #include "layer0.h"
 #include "rpi.h"
+#include "malloc.h"
 #include "util.h"
 #include "math.h"
-#include "systimer.h"
+#include "timer/systimer.h"
 #include "gic.h"
 #include "../layer2-messaging/messaging.h"
-#include "qlearning_sched.h"
-
-/* Set to 1 to use Q-Learning thread selection; 0 for original min-heap by priority/time. */
-#define USE_QL_SCHED 1
+#include "q_learning/qlearning_sched.h"
 
 // Forward declarations for functions that may be missing
 extern void EXIT();
@@ -26,8 +24,6 @@ extern uint32_t checkActiveInterrupt(uint32_t interrupt_id);
 extern int KernelCreate(uint8_t priority, void (*function)(), int parent);
 extern void recieve_helper(int PID);
 extern void handlerExceptionHelper(uint64_t esr_el1);
-#define DEBUG 5
-#define DEBUG_EXIT 0
 # define READY 0
 # define BLOCKED 1
 
@@ -272,25 +268,30 @@ int scrPick()
 	{
 		int ready_pids[QL_MAX_THREADS];
 		unsigned n_ready = 0;
-		for (unsigned i = 0; i < READY_HEAP.size && n_ready < QL_MAX_THREADS; i++) {
-			int p = READY_HEAP.harr[i].pid;
-			if (ql_pid_to_index(p) >= 0)
-				ready_pids[n_ready++] = p;
-		}
-		if (n_ready > 0) {
-			/* Agent: knapsack + binary-search budget for optimal value/time */
-			int chosen = ql_agent_plan(ready_pids, n_ready);
-			if (chosen < 0)
-				chosen = ql_pick_ready(ready_pids, n_ready);
-			if (chosen >= 0 && ql_heap_remove(chosen)) {
-				int a = ql_pid_to_index(chosen);
-				if (a >= 0) {
-					ql_record_action(ql_get_state(), (unsigned)a);
-					return chosen;
+		/* If heap min is a non-RL thread (pid > QL_MAX_THREADS), schedule by heap order so it runs */
+		if (READY_HEAP.size > 0 && READY_HEAP.harr[0].pid > QL_MAX_THREADS) {
+			/* fall through to extractMin so high-TID threads (e.g. spinlock test workers) get scheduled */
+		} else {
+			for (unsigned i = 0; i < READY_HEAP.size && n_ready < QL_MAX_THREADS; i++) {
+				int p = READY_HEAP.harr[i].pid;
+				if (ql_pid_to_index(p) >= 0)
+					ready_pids[n_ready++] = p;
+			}
+			if (n_ready > 0) {
+				/* Agent: knapsack + binary-search budget for optimal value/time */
+				int chosen = ql_agent_plan(ready_pids, n_ready);
+				if (chosen < 0)
+					chosen = ql_pick_ready(ready_pids, n_ready);
+				if (chosen >= 0 && ql_heap_remove(chosen)) {
+					int a = ql_pid_to_index(chosen);
+					if (a >= 0) {
+						ql_record_action(ql_get_state(), (unsigned)a);
+						return chosen;
+					}
 				}
 			}
 		}
-		/* Fallback: no RL ready or pick failed — use heap min */
+		/* Fallback: no RL ready, pick failed, or non-RL at min — use heap min */
 	}
 #endif
 
@@ -301,13 +302,7 @@ int scrPick()
 	#endif
 	return pid;
 }
-void debugPrint(char *str){
-	(void)str;
-	#if DEBUG == 4
-	uart_printf(CONSOLE, str);
-	#endif
-}
-// init the initial variables the system goes by
+
 void InitSys(void* reg)
 {	// For some reason, normal init to 0 just.. doesn't work?
 	kernelStartTime = get_timerLO();
@@ -316,6 +311,7 @@ void InitSys(void* reg)
 	READY_HEAP.harr = READY_QUEUE;
 	STACKSTART = reg;
 	PID = 0;
+	malloc_init_default();  /* heap in BSS (RAM); 0x1000000 not valid on QEMU virt */
 #if USE_QL_SCHED
 	ql_init_layer1();  /* Q-learning + agent (heuristics, knapsack, binary-search budget) */
 #endif
@@ -941,7 +937,7 @@ int KernelCreate(uint8_t priority, void (*function)(), int parent)
 	if (PROCS[p].pcpointer == NULL) {
 		// This slot is free - create thread (runnable unit)
 		PROCS[p].pcpointer = function;
-		PROCS[p].stackpointer = ((uint8_t*)STACKSTART) + (0x10000 * (p + 1)); // We need to check this
+		PROCS[p].stackpointer = ((uint8_t*)STACKSTART) + (STACK_SIZE_PER_THREAD * (p + 1));
 		// Maybe initialize PSTATE???
 		// Registers initialized all to 0??
 		PROCS[p].parentpid = parent;

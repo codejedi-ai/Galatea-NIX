@@ -3,21 +3,14 @@
 #include "processes.h"
 #include "gic.h"
 #include "layer0.h"
+#include "config.h"
 
-void context_switch_test(void);
 void run_layer1_tests(void);
 void run_layer2_tests(void);
-
-void* STACK_EL0_START; // Maybe delete this later
-#define CLOCKINTID 99
-#define CLOCKSERVERON 1
-#define UARTSERVERON 1
 
 void idle(){
 	int count = 0;
 	while(1){
-    		// uart_printf(CONSOLE, "idle: WFI <Print time here>\r\n");
-		// uart_printf(CONSOLE, "idle: time = %u\r\n", time);
 		uint32_t runtime = GetRuntime();
 		uint32_t kernelrt = GetKernelRuntime();
     // print the column and row onto 2 and 1
@@ -39,10 +32,7 @@ void master_test_runner() {
 }
 
 int kmain(void *reg) {
-
-  STACK_EL0_START = reg; // Immediately calls this to store stack_end point as x0
-  
-  // Early boot diagnostics
+  /* Early boot diagnostics */
   uart_init();
   uart_config_and_enable(CONSOLE, 115200);
   
