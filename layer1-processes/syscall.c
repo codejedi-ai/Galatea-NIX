@@ -939,12 +939,14 @@ int AwaitEvent(int eventType){ // Returns to the Kernel, then calls KernelCreate
 	return 0;
 }
 int GetRuntime(){ // Returns to the Kernel, then calls KernelCreate
-	asm("svc 11"); // The Kernel needs to put the pid in x0
-	return 0;
+	register int ret asm("x0");
+	asm volatile("svc 11" : "=r"(ret));
+	return ret;
 }
 int GetKernelRuntime(){ // Returns to the Kernel, then calls KernelCreate
-	asm("svc 12"); // The Kernel needs to put the pid in x0
-	return 0;
+	register int ret asm("x0");
+	asm volatile("svc 12" : "=r"(ret));
+	return ret;
 }
 // Stub implementation for Deregister - to be implemented when event registration is added
 void Deregister() {

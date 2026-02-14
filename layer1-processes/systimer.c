@@ -25,9 +25,11 @@ static const uint32_t SYSTIME_C3   = 0x18;   // System Timer Compare 3
 
 uint32_t get_timerLO() {
 #if TARGET_QEMU_VIRT == 1
-    // QEMU virt uses ARM architecturally-defined timers
-    // For now, return 0 to prevent hangs during init
-    return 0;
+    // QEMU virt uses ARM architecturally-defined generic timers
+    // Read the physical counter CNTPCT_EL0 (lower 32 bits)
+    uint64_t val;
+    asm volatile("mrs %0, cntpct_el0" : "=r" (val));
+    return (uint32_t)val;
 #else
     // RPi4 has memory-mapped system timer
     const unsigned int ret = SYSTIMER_REG(SYSTIME_CLO);
@@ -36,9 +38,11 @@ uint32_t get_timerLO() {
 }
 uint32_t get_timerHI(){
 #if TARGET_QEMU_VIRT == 1
-    // QEMU virt uses ARM architecturally-defined timers
-    // For now, return 0 to prevent hangs during init
-    return 0;
+    // QEMU virt uses ARM architecturally-defined generic timers
+    // Read the physical counter CNTPCT_EL0 (upper 32 bits)
+    uint64_t val;
+    asm volatile("mrs %0, cntpct_el0" : "=r" (val));
+    return (uint32_t)(val >> 32);
 #else
     // RPi4 has memory-mapped system timer
     const unsigned int ret = SYSTIMER_REG(SYSTIME_CHI);
