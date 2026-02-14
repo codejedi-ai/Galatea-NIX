@@ -1,5 +1,6 @@
 #include "messaging.h"
 #include "../layer1-processes/syscall.h"
+#include "layer0.h"
 #include "../layer1-processes/rpi.h"
 #include "../layer1-processes/util.h"
 
@@ -210,18 +211,18 @@ void reply_helper() {
 
 int Send(int tid, const char *msg, int msglen, char *reply, int replylen) {
     (void)tid; (void)msg; (void)msglen; (void)reply; (void)replylen;
-    asm("svc 5");
+    asm_svc_5();
     return 0;
 }
 
 int Receive(int *tid, char *msg, int msglen) {
     (void)tid; (void)msg; (void)msglen;
-    asm("svc 6");
+    asm_svc_6();
     return 0;
 }
 
 int Reply(int tid, void *reply, int replylen) {
     (void)tid; (void)reply; (void)replylen;
-    asm("svc 7");
+    asm_svc_7();
     return 0;
 }

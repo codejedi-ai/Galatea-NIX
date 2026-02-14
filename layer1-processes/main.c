@@ -2,6 +2,7 @@
 #include "syscall.h"
 #include "processes.h"
 #include "gic.h"
+#include "layer0.h"
 
 void context_switch_test(void);
 void run_layer1_tests(void);
@@ -22,7 +23,7 @@ void idle(){
     // print the column and row onto 2 and 1
     uart_printf(CONSOLE, "\033[2;1H");
 		uart_printf(CONSOLE, "idle: [%d] runprecentage = %u %% \r\n", count++, (100 * runtime) / kernelrt);
-		asm("WFI");
+		wfi();
 	}
 	Exit();
 }

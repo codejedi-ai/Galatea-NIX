@@ -1,12 +1,17 @@
 #include "syscall.h"
 #include "processes.h"
 #include "asm.h"
+#include "layer0.h"
 #include "rpi.h"
 #include "util.h"
 #include "math.h"
 #include "systimer.h"
 #include "gic.h"
 #include "../layer2-messaging/messaging.h"
+#include "qlearning_sched.h"
+
+/* Set to 1 to use Q-Learning thread selection; 0 for original min-heap by priority/time. */
+#define USE_QL_SCHED 1
 
 // Forward declarations for functions that may be missing
 extern void EXIT();
@@ -31,6 +36,8 @@ extern void handlerExceptionHelper(uint64_t esr_el1);
 static void *STACKSTART;
 uint32_t PID = 0;
 struct process PROCS[NUMPROCS];
+static struct process_container PROCESS_CONTAINERS[NPROCESSES];
+static uint8_t PROCESS_SHARED_MEM[NPROCESSES][SHARED_MEM_PER_PROCESS];
 static struct state READY_QUEUE[NUMPROCS];
 static struct state BLOCKED_LIST[NUMPROCS];
 static struct MinHeapState READY_HEAP;
@@ -228,30 +235,65 @@ void unblock(struct state currItem)
 	
 	unblock_ind(pid, priority);
 }
+
+#if USE_QL_SCHED
+/* Scratch for heap remove: re-insert all but the removed pid. */
+static struct state QL_SCRATCH[NUMPROCS];
+/* Remove pid from READY_HEAP; re-insert others. Return 1 if found and removed. */
+static int ql_heap_remove(int target_pid)
+{
+	unsigned n = 0;
+	while (!isEmpty_state_heap(&READY_HEAP)) {
+		struct state item = extractMin_state_heap(&READY_HEAP);
+		if (item.pid == target_pid) {
+			for (unsigned i = 0; i < n; i++)
+				insertKey_state_heap(&READY_HEAP, QL_SCRATCH[i]);
+			return 1;
+		}
+		QL_SCRATCH[n++] = item;
+		if (n >= NUMPROCS) break;
+	}
+	for (unsigned i = 0; i < n; i++)
+		insertKey_state_heap(&READY_HEAP, QL_SCRATCH[i]);
+	return 0;
+}
+#endif
+
 int scrPick()
 {
 	int pid = -1;
-	int bump = 0;
-	(void)bump; // Unused
-	/*
-	struct state emptyItem = {0, 0, 0};
-	
-	for (int i = 0; i < NUMPROCS; i++) {
-		if (bump) {
-			READY_QUEUE[i - 1] = READY_QUEUE[i];
-		}
-		else if (READY_QUEUE[i].pid > 0 && READY_QUEUE[i].time == READY) {
-			pid = READY_QUEUE[i].pid;
-			bump = 1;
-		}
-		
-	}
-	if (bump) {READY_QUEUE[NUMPROCS - 1] = emptyItem;}
-	*/
+	(void)pid; // used in both branches
 	#if DEBUG_EXIT >= 1
 	uart_printf(CONSOLE, "[DEBUG] scrPick: READY_HEAP size=%u\r\n", READY_HEAP.size);
 	#endif
 	if (isEmpty_state_heap(&READY_HEAP)) return -1;
+
+#if USE_QL_SCHED
+	{
+		int ready_pids[QL_MAX_THREADS];
+		unsigned n_ready = 0;
+		for (unsigned i = 0; i < READY_HEAP.size && n_ready < QL_MAX_THREADS; i++) {
+			int p = READY_HEAP.harr[i].pid;
+			if (ql_pid_to_index(p) >= 0)
+				ready_pids[n_ready++] = p;
+		}
+		if (n_ready > 0) {
+			/* Agent: knapsack + binary-search budget for optimal value/time */
+			int chosen = ql_agent_plan(ready_pids, n_ready);
+			if (chosen < 0)
+				chosen = ql_pick_ready(ready_pids, n_ready);
+			if (chosen >= 0 && ql_heap_remove(chosen)) {
+				int a = ql_pid_to_index(chosen);
+				if (a >= 0) {
+					ql_record_action(ql_get_state(), (unsigned)a);
+					return chosen;
+				}
+			}
+		}
+		/* Fallback: no RL ready or pick failed — use heap min */
+	}
+#endif
+
 	struct state currItem = extractMin_state_heap(&READY_HEAP);
 	pid = currItem.pid;
 	#if DEBUG_EXIT >= 1
@@ -274,6 +316,9 @@ void InitSys(void* reg)
 	READY_HEAP.harr = READY_QUEUE;
 	STACKSTART = reg;
 	PID = 0;
+#if USE_QL_SCHED
+	ql_init_layer1();  /* Q-learning + agent (heuristics, knapsack, binary-search budget) */
+#endif
 	for (int event = 0; event < MAXEVENT; event++){
 		AWAIT_INTERRUPT[event].len = 0;
 		AWAIT_INTERRUPT[event].eventq_len = 0;
@@ -285,11 +330,17 @@ void InitSys(void* reg)
 			AWAIT_INTERRUPT[event].pid_ls[jdx].time = 0;
 		}
 	}
+	for (int i = 0; i < NPROCESSES; i++) {
+		PROCESS_CONTAINERS[i].pid = i;
+		PROCESS_CONTAINERS[i].shared_mem_base = &PROCESS_SHARED_MEM[i][0];
+		PROCESS_CONTAINERS[i].shared_mem_size = SHARED_MEM_PER_PROCESS;
+	}
 	for (int idx = 0; idx < NUMPROCS; idx++) {
 		PROCS[idx].stackpointer = NULL;
 		PROCS[idx].pcpointer = NULL;
 		PROCS[idx].pstate = 0;
 		PROCS[idx].parentpid = 0;
+		PROCS[idx].process_id = 0;
 		PROCS[idx].priority = 0;
 		// PROCS[idx].queuesize = 0;
 		for (int jdx = 0; jdx < 31; jdx++) {
@@ -555,6 +606,15 @@ void handlerExceptionHelper(uint64_t esr_el1)
 		switch (i) {
 		
 		case 0: // Exit
+#if USE_QL_SCHED
+			{
+				int pid_val = p + 1;
+				uint32_t now = get_timerLO();
+				uint32_t runtime = (now >= kernelStartTime) ? (now - kernelStartTime) : 0;
+				int32_t effective = ql_effective_reward(pid_val, runtime);
+				ql_on_complete(pid_val, effective);
+			}
+#endif
 			Kill(p);
 			break;
 		case 1: // Yield
@@ -730,6 +790,20 @@ void handlerExceptionHelper(uint64_t esr_el1)
 			scrSchedule(PID, PROCS[p].priority);
 			PROCS[p].registervalues[0] = get_timerLO() - kernelStartTime;
 			break;
+		case 13: // MyProcessId - return process container id (threads in same process share memory)
+			scrSchedule(PID, PROCS[p].priority);
+			PROCS[p].registervalues[0] = PROCS[p].process_id;
+			break;
+		case 14: // GetProcessSharedMem - return base pointer of this process's shared memory
+			scrSchedule(PID, PROCS[p].priority);
+			{
+				int pcid = PROCS[p].process_id;
+				if (pcid >= 0 && pcid < NPROCESSES)
+					PROCS[p].registervalues[0] = (uint64_t)(uintptr_t)PROCESS_CONTAINERS[pcid].shared_mem_base;
+				else
+					PROCS[p].registervalues[0] = 0;
+			}
+			break;
 
 		default:
 			scrSchedule(PID, PROCS[p].priority);
@@ -865,12 +939,13 @@ int KernelCreate(uint8_t priority, void (*function)(), int parent)
 	}
 	while (PROCS[p].pcpointer != NULL) p++;
 	if (PROCS[p].pcpointer == NULL) {
-		// This PID is currently not taken
+		// This slot is free - create thread (runnable unit)
 		PROCS[p].pcpointer = function;
 		PROCS[p].stackpointer = ((uint8_t*)STACKSTART) + (0x10000 * (p + 1)); // We need to check this
 		// Maybe initialize PSTATE???
 		// Registers initialized all to 0??
-		PROCS[p].parentpid = parent; // MAYBE CHANGE THIS
+		PROCS[p].parentpid = parent;
+		PROCS[p].process_id = (parent > 0) ? PROCS[parent - 1].process_id : 0; /* same process as parent, or process 0 */
 		PROCS[p].priority = priority;
 		PROCS[p].pid = p + 1;
 		PROCS[p].pstate = 0;
@@ -898,55 +973,54 @@ void Kill(int p) // p is the position of the process in the PROCS array
 // Moved to layer2-messaging/messaging.c
 // See messaging.h for declarations
 
-// The Following are EL0 commands
-int MyTid()
+// The Following are EL0 commands (SVC stubs in layer0-assembly/syscalls.S)
+int MyTid(void)
 {
-	register int ret asm("x0");
-	asm volatile("svc 3" : "=r"(ret));
-	return ret;
+	return asm_svc_3();
 }
-int MyParentTid()
+int MyParentTid(void)
 {
-	register int ret asm("x0");
-	asm volatile("svc 4" : "=r"(ret));
-	return ret;
+	return asm_svc_4();
 }
 
-int MyPriority(){
-	register int ret asm("x0");
-	asm volatile("svc 8" : "=r"(ret));
-	return ret;
+int MyPriority(void)
+{
+	return asm_svc_8();
 }
 
-int Create(uint8_t priority, void (*function)()) { // Returns to the Kernel, then calls KernelCreate
-	(void)priority; (void)function;
-	register int ret asm("x0");
-	asm volatile("svc 2" : "=r"(ret)); // The Kernel needs to put the pid in x0
-	return ret;
+int Create(uint8_t priority, void (*function)(void))
+{
+	return asm_svc_2(priority, (void (*)(void))function);
 }
 
-int CreateArgs(uint8_t priority, void (*function)(), uint64_t argsno, uint64_t *args) { // Returns to the Kernel, then calls KernelCreate
+int CreateArgs(uint8_t priority, void (*function)(), uint64_t argsno, uint64_t *args)
+{
 	(void)priority;
 	(void)function;
 	(void)argsno;
 	(void)args;
-	asm("svc 9"); // The Kernel needs to put the pid in x0
-	return 0;
+	return asm_svc_9();
 }
-int AwaitEvent(int eventType){ // Returns to the Kernel, then calls KernelCreate
+int AwaitEvent(int eventType)
+{
 	(void)eventType;
-	asm("svc 10"); // The Kernel needs to put the pid in x0
-	return 0;
+	return asm_svc_10();
 }
-int GetRuntime(){ // Returns to the Kernel, then calls KernelCreate
-	register int ret asm("x0");
-	asm volatile("svc 11" : "=r"(ret));
-	return ret;
+int GetRuntime(void)
+{
+	return asm_svc_11();
 }
-int GetKernelRuntime(){ // Returns to the Kernel, then calls KernelCreate
-	register int ret asm("x0");
-	asm volatile("svc 12" : "=r"(ret));
-	return ret;
+int GetKernelRuntime(void)
+{
+	return asm_svc_12();
+}
+int MyProcessId(void)
+{
+	return asm_svc_13();
+}
+void *GetProcessSharedMem(void)
+{
+	return asm_svc_14();
 }
 // Stub implementation for Deregister - to be implemented when event registration is added
 void Deregister() {
@@ -956,16 +1030,14 @@ void Deregister() {
 
 // Why is exit SCV 0 
 // The difference between an exit and a Yield is Exit do not return back to the priority READY_QUEUE where Yield returns the program back into the priority READY_QUEUE to be ran again. 
-void Exit()
+void Exit(void)
 {
 	Deregister();
-	asm("svc 0");
-	return;
+	asm_svc_0();
 }
-void Yield()
+void Yield(void)
 {
-	asm("svc 1");
-	return;
+	asm_svc_1();
 }
 
 

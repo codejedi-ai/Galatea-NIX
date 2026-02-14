@@ -3,6 +3,8 @@
 #include "asm.h"
 #define QUEUESIZE 255
 #define NUMPROCS 20
+#define NPROCESSES 8
+#define SHARED_MEM_PER_PROCESS 4096
 #define MAXINT 2147483647
 #define MININT -2147483648
 #define MAXEVENT 1025
@@ -53,12 +55,27 @@ struct message{
     uint64_t replylen;
 };
 
+/*
+ * Process = memory management only. Owns a shared memory region (base + size).
+ * Threads within a process share the same memory space (this region).
+ */
+struct process_container {
+	int pid;                  /* process id */
+	void *shared_mem_base;    /* shared memory: all threads in this process use this */
+	uint32_t shared_mem_size;
+};
+
+/*
+ * Thread = runnable unit (stack, PC, registers). process_id = which process;
+ * threads within a process share that process's memory space.
+ */
 struct process {
 	void *stackpointer;
 	void (*pcpointer)();
 	uint32_t pstate;
 	int parentpid;
-	int pid;
+	int pid;                  /* thread id (TID) - used in scheduling, MyTid() */
+	int process_id;           /* which process container this thread belongs to */
 	uint8_t priority;
 	uint64_t registervalues[31];
 	// define an array of messages such would be held in memory for each process.
@@ -101,4 +118,6 @@ void ExceptionASYNC(uint64_t esr_el1);
 int AwaitEvent(int eventType);
 int GetRuntime();
 int GetKernelRuntime();
+int MyProcessId(void);
+void *GetProcessSharedMem(void);
 #endif
