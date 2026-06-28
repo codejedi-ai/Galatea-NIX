@@ -66,7 +66,7 @@ int _read(int file, char *ptr, int len) {
     return 0;
 }
 
-// Increase program data space - not implemented (using custom malloc)
+// Increase program data space - not implemented (kernel overrides malloc/free)
 void *_sbrk(int incr) {
     (void)incr;
     errno = ENOMEM;

@@ -32,6 +32,10 @@
 
 /* ----- Heap ----- */
 #define HEAP_SIZE_DEFAULT  (64 * 1024)  /* 64 KB */
+#define MALLOC_MAP_ENTRIES 64           /* max concurrent allocations for phys↔virtual map */
+/* Per-process virtual heap: each process gets its own VRAM range (process_id → vram base). */
+#define VRAM_HEAP_BASE              0x10000UL
+#define VRAM_HEAP_SIZE_PER_PROCESS  0x10000UL  /* 64 KB virtual heap per process */
 
 /* ----- Q-learning scheduler ----- */
 #define QL_MAX_THREADS      8

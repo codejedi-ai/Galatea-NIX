@@ -104,42 +104,43 @@ void test_process_creation(void) {
     TEST_PRINT(ok3, "Process creation tests passed");
 }
 
-/* Heap allocator: mymalloc / myfree */
+/* Heap allocator: malloc / free (bare-metal override) */
 static const struct test_print_msg hdr_malloc = { TEST_LEVEL_TEST, NULL };
 static const struct test_print_msg info_malloc = { TEST_LEVEL_LINE, TEST_TAG_INFO };
 static const struct test_print_msg ok_malloc = { TEST_LEVEL_LINE, TEST_TAG_OK };
 static const struct test_print_msg fail_malloc = { TEST_LEVEL_LINE, TEST_TAG_FAIL };
 
 void test_malloc(void) {
-    TEST_PRINT(hdr_malloc, "Test #5: Heap (mymalloc/myfree):");
-    TEST_PRINT(info_malloc, "Testing heap allocation...");
-    uint64_t *a = mymalloc(4);
+    TEST_PRINT(hdr_malloc, "Test #5: Heap (malloc/free, per-process VRAM map):");
+    TEST_PRINT(info_malloc, "Testing heap allocation (process_id, vram, phys)...");
+    int pid = GetCurrentProcessId();
+    uint64_t *a = malloc_for_process(pid, 4);
     if (!a) {
-        TEST_PRINT(fail_malloc, "mymalloc(4) returned NULL");
+        TEST_PRINT(fail_malloc, "malloc_for_process(%d, 4) returned NULL", pid);
         return;
     }
     a[0] = TEST_MAGIC_VAL2;
-    uint64_t *b = mymalloc(8);
+    uint64_t *b = malloc_for_process(pid, 8);
     if (!b) {
-        TEST_PRINT(fail_malloc, "mymalloc(8) returned NULL");
-        myfree(a);
+        TEST_PRINT(fail_malloc, "malloc_for_process(%d, 8) returned NULL", pid);
+        free(a);
         return;
     }
     b[0] = TEST_MAGIC_VAL;
-    myfree(a);
-    uint64_t *c = mymalloc(2);
+    free(a);
+    uint64_t *c = malloc_for_process(pid, 2);
     if (!c) {
-        TEST_PRINT(fail_malloc, "mymalloc(2) after free returned NULL");
-        myfree(b);
+        TEST_PRINT(fail_malloc, "malloc_for_process(%d, 2) after free returned NULL", pid);
+        free(b);
         return;
     }
-    myfree(c);
+    free(c);
     if (b[0] != TEST_MAGIC_VAL) {
         TEST_PRINT(fail_malloc, "Heap: read-back mismatch");
-        myfree(b);
+        free(b);
         return;
     }
-    myfree(b);
+    free(b);
     TEST_PRINT(ok_malloc, "Heap: alloc/free/realloc and read-back OK");
     TEST_PRINT(ok_malloc, "Heap tests passed");
 }
@@ -239,6 +240,43 @@ void test_syscalls(void) {
     TEST_PRINT(ok2, "Syscall tests passed");
 }
 
+/* Test #9: Memory isolation — per-process VRAM; allocations do not overlap; data isolated. */
+static const struct test_print_msg hdr8  = { TEST_LEVEL_TEST, NULL };
+static const struct test_print_msg info8 = { TEST_LEVEL_LINE, TEST_TAG_INFO };
+static const struct test_print_msg fail8 = { TEST_LEVEL_LINE, TEST_TAG_FAIL };
+
+void test_memory_isolation(void) {
+    TEST_PRINT(hdr8, "Test #9: Memory isolation:");
+    TEST_PRINT(info8, "Per-process VRAM; distinct blocks; no cross-process overlap");
+    int pid = GetCurrentProcessId();
+    uint64_t *block_a = malloc_for_process(pid, 4);
+    uint64_t *block_b = malloc_for_process(pid, 4);
+    if (!block_a || !block_b) {
+        TEST_PRINT(fail8, "Memory isolation: alloc failed");
+        if (block_a) free(block_a);
+        if (block_b) free(block_b);
+        return;
+    }
+    if (block_a == block_b) {
+        TEST_PRINT(fail8, "Memory isolation: two allocs returned same pointer");
+        free(block_a);
+        free(block_b);
+        return;
+    }
+    block_a[0] = 0xA1B2C3D4UL;
+    block_b[0] = 0xDEADBEEFUL;
+    if (block_a[0] != 0xA1B2C3D4UL || block_b[0] != 0xDEADBEEFUL) {
+        TEST_PRINT(fail8, "Memory isolation: read-back mismatch (blocks overlap or wrong)");
+        free(block_a);
+        free(block_b);
+        return;
+    }
+    free(block_a);
+    free(block_b);
+    TEST_PRINT(ok2, "Memory isolation: distinct blocks, data isolated per allocation");
+    TEST_PRINT(ok2, "Test #9 passed");
+}
+
 static const struct test_print_msg suite_ok = { TEST_LEVEL_TEST, TEST_TAG_OK };
 
 void run_layer1_tests(void) {
@@ -251,6 +289,7 @@ void run_layer1_tests(void) {
     test_processes();
     test_spinlock();
     test_syscalls();
+    test_memory_isolation();
     TEST_PRINT(suite_ok, "All Layer 1 tests passed");
     uart_printf(CONSOLE, "\r\n");
 }

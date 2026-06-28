@@ -12,7 +12,7 @@ The repo uses **five layer folders**: `layer0-assembly`, `layer1-processes`, `la
 - **Layer 3 (services):** System services like nameserver, clock server, I/O server, gameserver — used by kernel and applications.
 - **Layer 4 (application):** Shell, train control (track server, marklin worker, tc1 commands), tests. Train logic lives here; the kernel does not start it.
 
-For a folder-by-folder description of the repo, see **[docs/structure.md](docs/structure.md)**.
+For a folder-by-folder description of the repo, see **[structure.md](structure.md)**.
 
 ## Requirements
 
@@ -33,5 +33,5 @@ make clean    # remove .o, .d, .elf, .img (including under docs and base dir)
 
 ## Documentation
 
-- **[docs/structure.md](docs/structure.md)** — What each folder and main file does.
-- **[docs/README.md](docs/README.md)** — Index of docs.
+- **[structure.md](structure.md)** — What each folder and main file does.
+- **[DOCS_INDEX.md](DOCS_INDEX.md)** — Index of docs in this folder.

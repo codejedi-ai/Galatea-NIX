@@ -107,4 +107,6 @@ int GetRuntime();
 int GetKernelRuntime();
 int MyProcessId(void);
 void *GetProcessSharedMem(void);
+/* Kernel-only: current process container id (for alloc/free). Use when in kernel context. */
+int GetCurrentProcessId(void);
 #endif

@@ -1018,6 +1018,12 @@ void *GetProcessSharedMem(void)
 {
 	return asm_svc_14();
 }
+int GetCurrentProcessId(void)
+{
+	if (PID <= 0 || PID > NUMPROCS)
+		return 0;
+	return PROCS[PID - 1].process_id;
+}
 // Stub implementation for Deregister - to be implemented when event registration is added
 void Deregister() {
 	// TODO: Clean up any event registrations before exit
