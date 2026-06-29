@@ -16,6 +16,18 @@ spinlock_acquire:
 	cbnz	w2, 1b
 	ret
 
+.global spinlock_try_acquire
+spinlock_try_acquire:
+	ldaxr	w1, [x0]
+	cbnz	w1, 2f
+	mov	w1, #1
+	stlxr	w2, w1, [x0]
+	cbnz	w2, spinlock_try_acquire
+	mov	w0, #1
+	ret
+2:	mov	w0, #0
+	ret
+
 .global spinlock_release
 spinlock_release:
 	/* x0 = lock pointer */

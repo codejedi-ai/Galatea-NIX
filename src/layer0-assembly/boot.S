@@ -28,10 +28,10 @@
 .section ".text.boot"
 .global _start
 _start:
-    // check processor ID is zero (executing on main core), else loop
-//    mrs  x0, mpidr_el1
-//    and  x0, x0, #3
-//    cbnz x0, exit
+    // CPU 0 continues; CPUs 1–3 are released later via spin table (see smp.c).
+    mrs  x0, mpidr_el1
+    and  x0, x0, #3
+    cbnz x0, exit
 
     // are we already in EL1?
     mrs  x1, CurrentEL
@@ -51,8 +51,18 @@ _start:
     eret // -> el1_entry
 
 el1_entry:
-    // configure processor and mmu
-    ldr x2, =SCTLR_VALUE_MMU_DISABLED
+    // Cortex-A72: enable cache coherency with the other cores in the cluster
+    // (CPUECTLR_EL1.SMPEN, bit 6). Must be set before caches/MMU come on, or
+    // shared data + the LDXR/STXR spinlock are not coherent across CPUs.
+    mrs x0, S3_1_c15_c2_1
+    orr x0, x0, #(1 << 6)
+    msr S3_1_c15_c2_1, x0
+    isb
+
+    // Configure processor (MMU off under QEMU -kernel).
+    ldr x2, =(SCTLR_VALUE_MMU_DISABLED)
+    mrs x3, sctlr_el1
+    orr x2, x2, x3
     msr sctlr_el1, x2
 
     // mask-out exceptions at EL1
@@ -66,24 +76,12 @@ el1_entry:
     ldr x1, = vector_table_el1
     msr VBAR_EL1, x1
 
-
     // Jump to our main() routine in C/C++
     bl      kmain // x0 should still be the stackend address
 	// I need to modify something here
 .global EXIT
 EXIT:
-	
-    // use watchdog to reboot
-    mov x2, 36
-    mov x0, 28
-    movk  x2, 0xfe10, lsl 16
-    movk  x0, 0xfe10, lsl 16
-    mov w3, 1
-    mov w1, 32
-    movk  w3, 0x5a00, lsl 16
-    str w3, [x2]
-    movk  w1, 0x5a00, lsl 16
-    str w1, [x0]
+    msr daifset, #0xf   /* disable all interrupts so we don't fault in WFI */
 
 exit:
     wfi

@@ -3,16 +3,22 @@
 #include "layer0.h"
 #include "../layer1-processes/rpi.h"
 #include "../layer1-processes/util.h"
+#include "../layer1-processes/config.h"
 
 // External dependencies from layer1
-extern uint32_t PID;
 extern struct process PROCS[];
+extern uint32_t PID;
 extern void block(int pid, uint8_t priority);
 extern void unblock_ind(int pid, uint8_t priority);
 extern void scrSchedule(int pid, uint8_t priority);
 extern int dead(int p);
 
 #define DEBUG 5
+
+static inline int running_tid(void)
+{
+	return (int)PID;
+}
 
 // Helper to get minimum of two integers
 static inline int min_int(int a, int b) {
@@ -34,7 +40,7 @@ void send_helper() {
     #endif
     
     // Extract sender's process info
-    int p = PID - 1;
+    int p = running_tid() - 1;
     int tid = (int)PROCS[p].registervalues[0];
     char *msg = (char *)PROCS[p].registervalues[1];
     uint64_t msglen = PROCS[p].registervalues[2];
@@ -52,7 +58,7 @@ void send_helper() {
     // Queue the message in receiver's mailbox
     int p_to = tid - 1;
     int tail = PROCS[p_to].waiting_recieve_tail;
-    PROCS[p_to].message_recieved[tail].tid = PID;
+    PROCS[p_to].message_recieved[tail].tid = (uint64_t)running_tid();
     PROCS[p_to].message_recieved[tail].msg = msg;
     PROCS[p_to].message_recieved[tail].msglen = msglen;
     PROCS[p_to].message_recieved[tail].reply = reply;
@@ -92,9 +98,10 @@ void send_helper() {
  * 
  * @param PID Process ID of the receiving task
  */
-void recieve_helper(int PID) {
-    int p = PID - 1;
-    int head = PROCS[p].waiting_recieve_head;
+void recieve_helper(int receiver_tid)
+{
+	int p = receiver_tid - 1;
+	int head = PROCS[p].waiting_recieve_head;
     int tail = PROCS[p].waiting_recieve_tail;
     
     #if DEBUG
@@ -159,7 +166,7 @@ void recieve_helper(int PID) {
     PROCS[p].registervalues[0] = msglen;
     
     // Unblock the receiver task
-    unblock_ind(PID, PROCS[p].priority);
+    unblock_ind(PROCS[p].pid, PROCS[p].priority);
 }
 
 /**
@@ -171,36 +178,32 @@ void recieve_helper(int PID) {
  * 3. Unblocks the original sender task (which was blocked in Send)
  */
 void reply_helper() {
-    #if DEBUG == 2
-    // uart_printf(CONSOLE, "===============\r\n Reply Helper Called:\r\n");
-    #endif
-    
-    // Extract reply parameters
-    int p = PID - 1;
+    int p = running_tid() - 1;
     int tid = PROCS[p].registervalues[0];          // Task to reply to
     char *reply = (char *)PROCS[p].registervalues[1];
     uint64_t replylen = PROCS[p].registervalues[2];
-    
+
+    /* Guard: reject Reply to an invalid, dead, or non-waiting TID.
+     * This prevents stale delay-queue entries from unblocking dead tasks,
+     * which would corrupt the scheduler and fault on a null pcpointer. */
+    if (tid < 1 || tid > NUMPROCS
+            || PROCS[tid - 1].pcpointer == NULL
+            || !PROCS[tid - 1].waiting_reply) {
+        PROCS[p].registervalues[0] = (uint64_t)-1;
+        return;
+    }
+
     // Get sender's reply buffer
     char *reply_buffer = PROCS[tid - 1].message_sent.reply;
     uint64_t reply_buffer_len = PROCS[tid - 1].message_sent.replylen;
-    
+
     // Copy reply to sender's buffer (truncate if necessary)
     replylen = min_int(reply_buffer_len, replylen);
     memcpy(reply_buffer, reply, replylen);
-    
-    #if DEBUG == 2
-    // uart_printf(CONSOLE, "reply_buffer length is %d\r\n", replylen);
-    // uart_printf(CONSOLE, "TID is %u\r\n", tid);
-    // uart_printf(CONSOLE, "REPLY is %s\r\n", reply);
-    // uart_printf(CONSOLE, "REPLYLEN is %u\r\n ===============\r\n ", replylen);
-    // uart_printf(CONSOLE, "replying to PID is %u, reply PID is %u\r\n", tid, PID);
-    // uart_printf(CONSOLE, "reply_buffer is %x, *reply is %x\r\n", reply_buffer, reply);
-    #endif
-    
+
     // Unblock the original sender
     unblock_ind(tid, PROCS[tid - 1].priority);
-    
+
     // Return reply length to both sender and replier
     PROCS[tid - 1].registervalues[0] = replylen;
     PROCS[tid - 1].waiting_reply = 0;
@@ -211,18 +214,15 @@ void reply_helper() {
 
 int Send(int tid, const char *msg, int msglen, char *reply, int replylen) {
     (void)tid; (void)msg; (void)msglen; (void)reply; (void)replylen;
-    asm_svc_5();
-    return 0;
+    return asm_svc_5();
 }
 
 int Receive(int *tid, char *msg, int msglen) {
     (void)tid; (void)msg; (void)msglen;
-    asm_svc_6();
-    return 0;
+    return asm_svc_6();
 }
 
-int Reply(int tid, void *reply, int replylen) {
+int Reply(int tid, const void *reply, int replylen) {
     (void)tid; (void)reply; (void)replylen;
-    asm_svc_7();
-    return 0;
+    return asm_svc_7();
 }

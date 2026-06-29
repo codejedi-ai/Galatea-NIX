@@ -1,0 +1,7 @@
+{
+  "comment": "Default OS terminal — cols/rows from config.h UI_DESIGN_SCREEN_*",
+  "cols": 176,
+  "rows": 50,
+  "body_w": 174,
+  "body_h": 43
+}

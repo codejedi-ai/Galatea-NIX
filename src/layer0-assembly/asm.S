@@ -1,3 +1,5 @@
+#include "config.h"
+
 .text
 .align 4
 .global	Begin
@@ -7,32 +9,31 @@ Begin:
 	msr elr_el1, x1
 	msr sp_el0, x2
 	msr spsr_el1, x3
-	
-	ldr     x1, =stackend
-	mov     sp, x1
-	
-	// x0 = register buffer pointer - keep it for last!
-	// Load registers X1-X30 first, then X0 at the end
-	add x1, x0, #8      // x1 = address of registervalues[1]
-	ldp x1, x2, [x1], #16
-	ldp x3, x4, [x1], #16
-	ldp x5, x6, [x1], #16
-	ldp x7, x8, [x1], #16
-	ldp x9, x10, [x1], #16
-	ldp x11, x12, [x1], #16
-	ldp x13, x14, [x1], #16
-	ldp x15, x16, [x1], #16
-	ldp x17, x18, [x1], #16
-	ldp x19, x20, [x1], #16
-	ldp x21, x22, [x1], #16
-	ldp x23, x24, [x1], #16
-	ldp x25, x26, [x1], #16
-	ldp x27, x28, [x1], #16
-	ldp x29, x30, [x1], #16
+
+	// Reset the EL1 kernel stack pointer (cpu-0 slot).
+	ldr x10, =__cpu_stack_end
+	mov sp, x10
+
+	// x0 = register buffer pointer — load x1–x30 via fixed offsets from x0.
+	ldp x1, x2, [x0, #8]
+	ldp x3, x4, [x0, #24]
+	ldp x5, x6, [x0, #40]
+	ldp x7, x8, [x0, #56]
+	ldp x9, x10, [x0, #72]
+	ldp x11, x12, [x0, #88]
+	ldp x13, x14, [x0, #104]
+	ldp x15, x16, [x0, #120]
+	ldp x17, x18, [x0, #136]
+	ldp x19, x20, [x0, #152]
+	ldp x21, x22, [x0, #168]
+	ldp x23, x24, [x0, #184]
+	ldp x25, x26, [x0, #200]
+	ldp x27, x28, [x0, #216]
+	ldp x29, x30, [x0, #232]
 	
 	// Finally load X0 (now it's safe since we don't need the pointer anymore)
 	ldr x0, [x0]
-	
+
 	eret
 
 .global Save
@@ -251,3 +252,14 @@ pop_trap_frame:
 .global wfi
 wfi:
 	WFI // puts the CPU into WFI mode
+	ret
+
+.global wfe
+wfe:
+	WFE
+	ret
+
+.global sevl
+sevl:
+	SEVL
+	ret

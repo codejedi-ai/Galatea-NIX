@@ -1,72 +1,50 @@
 #!/usr/bin/env bash
-# Dev wrapper — uses CS452ROTOS-PLATFORM image from Docker Hub (or local build).
+#
+# Dev-environment driver — uses CS452ROTOS-PLATFORM (codejedi-ai/cs452rotos-platform:latest).
+# NIX repos also expose docker compose services (screen, prod) via compose directly.
+#
+#   ./dev.sh shell          # interactive shell in the container (source at /src)
+#   ./dev.sh make [args]    # run `make [args]` inside the container (same as build)
+#   ./dev.sh build [args]   # run `make [args]` inside the container
+#   ./dev.sh build-image    # pull/ensure the shared platform image
+#   ./dev.sh run            # build + boot the kernel INTERACTIVELY (the OS terminal)
+#   ./dev.sh test           # build + boot on QEMU raspi4b (timed smoke test)
+#   ./dev.sh clean          # run `make clean` inside the container
+#   ./dev.sh pi             # build Raspberry Pi 4 artifacts (kernel8.img)
+#   ./dev.sh link-test      # boot + assert the OS reaches the right Marklin mock
+#
+# CPU cap is DEV_CPUS (default 1) in docker-compose.yml; override per run, e.g.
+#   DEV_CPUS=4 ./dev.sh make all
+#
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLATFORM="$(cd "${ROOT}/../github_codejedi-ai_CS452ROTOS-PLATFORM" && pwd)"
-IMAGE="${DARCYOS_IMAGE:-codejedi-ai/cs452rotos-platform:latest}"
+cd "$ROOT"
 
-usage() {
-	cat <<'EOF'
-Usage: ./dev.sh <command>
-
-Commands:
-  build-image Pull/build the shared platform image
-  run         Build kernel and run layer tests under QEMU
-  shell       Open a shell in the dev container
-  make [args] Run make inside the container
-
-Environment:
-  DARCYOS_IMAGE   default: codejedi-ai/cs452rotos-platform:latest
-EOF
-}
+DC=(docker compose)
 
 ensure_image() {
-	DARCYOS_IMAGE="${IMAGE}"
+	DARCYOS_IMAGE="${DARCYOS_IMAGE:-codejedi-ai/cs452rotos-platform:latest}"
 	# shellcheck source=/dev/null
 	source "${PLATFORM}/scripts/ensure-image.sh"
 }
 
-docker_run() {
-	ensure_image
-	local -a args=(--rm -v "${ROOT}:/workspace" -w /workspace -e XDIR=/opt/toolchain -e IN_DOCKER=1)
-	if [ -t 0 ] && [ -t 1 ]; then
-		args+=(-it)
-	else
-		args+=(-i)
-	fi
-	if [ -e /dev/kvm ]; then
-		args+=(--device /dev/kvm)
-		if command -v getent >/dev/null 2>&1 && getent group kvm >/dev/null 2>&1; then
-			args+=(--group-add "$(getent group kvm | cut -d: -f3)")
-		fi
-	fi
-	args+=(--entrypoint bash "${IMAGE}")
-	docker run "${args[@]}" -lc 'exec /workspace/scripts/container-run.sh "$@"' -- "$@"
-}
-
-cmd="${1:-run}"
+cmd="${1:-shell}"
 shift || true
 
-case "${cmd}" in
-	build|build-image)
-		ensure_image
-		;;
-	run)
-		docker_run run
-		;;
-	shell|bash)
-		docker_run shell
-		;;
-	make)
-		docker_run make -j"$(nproc)" "$@"
-		;;
-	help|-h|--help)
-		usage
-		;;
-	*)
-		echo "Unknown command: ${cmd}" >&2
-		usage >&2
-		exit 1
-		;;
+case "$cmd" in
+  shell)         ensure_image; "${DC[@]}" run --rm shell ;;
+  build)         ensure_image; "${DC[@]}" run --rm -T shell make "$@" ;;
+  make)          ensure_image; "${DC[@]}" run --rm -T shell make "$@" ;;
+  build-image)   ensure_image ;;
+  run)           ensure_image; "${DC[@]}" run --rm run ;;
+  test)          ensure_image; "${DC[@]}" run --rm -T test ;;
+  clean)         ensure_image; "${DC[@]}" run --rm -T shell make clean ;;
+  pi)            ensure_image; "${DC[@]}" run --rm -T shell bash mkpi.sh ;;
+  link-test)     ensure_image; "${DC[@]}" run --rm -T shell bash tools/test_link.sh ;;
+  rebuild-image) ensure_image ;;
+  *)
+    echo "usage: $0 {shell|make [args]|build [args]|build-image|run|test|clean|pi|link-test|rebuild-image}" >&2
+    exit 1 ;;
 esac

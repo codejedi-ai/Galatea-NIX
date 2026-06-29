@@ -18,7 +18,7 @@ flowchart TB
   end
 
   subgraph nix["NIX line (layer0–5)"]
-    GAL["GalateaOS<br/>layer0–2 only"]
+    SMP["SmpOS (APU-line)<br/>layer0–2 only"]
     NYX["NyxOS<br/>Docker prod"]
     KAT["KatarOS<br/>APU + display-screen"]
     ATARI["AtariOS<br/>NIX snapshot + IRQ UART"]
@@ -71,7 +71,7 @@ DevOps unification (2026)
 
 | Line | Directory pattern | Console I/O | Multi-core |
 |------|-------------------|-------------|------------|
-| **K-line** | `src/k0`…`k4`, `common`, `tc1` | `k4/servers/uart/` | Planned (`k4/servers/apu/`) |
+| **SMP-line** | `src/k0`…`k4`, `common`, `tc1` | `k4/servers/uart/` | Planned (`k4/servers/apu/`) |
 | **NIX** | `src/layer0-assembly`…`layer5-applications` | `layer3-services/uart/` | `accel` + `apu_server` |
 
 Both lines target the **same IRQ UART behaviour**; only folder names differ.
@@ -87,7 +87,7 @@ Both lines target the **same IRQ UART behaviour**; only folder names differ.
 | KatarOS | ● | ● | ● | ● | ● | Production NIX |
 | NyxOS | ● | ● | ● | ● | ● | Prod screen image |
 | AtariOS | ● | partial | ● | ● | ● | NIX archive, UART aligned |
-| GalateaOS | ◐ L1–L2 | ○ | ○ | ○ | ● | Incomplete |
+| SmpOS (APU-line) | ◐ L1–L2 | ○ | ○ | ○ | ● | Incomplete |
 
 Legend: ● done · ◐ partial · ○ not yet
 

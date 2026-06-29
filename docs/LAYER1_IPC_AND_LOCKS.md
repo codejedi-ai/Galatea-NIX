@@ -28,7 +28,7 @@ Layer 1 tests include an **IPC test** that runs Send/Receive/Reply between two t
 | Timer          | test_timer              | GetKernelRuntime, time advancing |
 | Context switch | test_context_switch     | Create, Yield, Exit, round-robin |
 | Process create | test_process_creation   | Create() |
-| **Heap**       | test_malloc             | malloc/free (heap allocation; bare-metal override) |
+| **Heap**       | test_malloc             | mymalloc/myfree (heap allocation) |
 | Process        | test_processes          | MyProcessId, GetProcessSharedMem, shared memory |
 | Spinlock       | test_spinlock           | Two threads increment shared counter under lock |
 | Syscalls       | test_syscalls           | Syscall interface |

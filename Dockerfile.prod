@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+#
+# PRODUCTION: ttyd web terminal + baked kernel (one QEMU session per browser tab).
+#   http://localhost:7681  -> ttyd -> OS console
+#
+# Deploy: ./prod.sh up
+ARG DEV_IMAGE=codejedi-ai/cs452rotos-platform:latest
+FROM ${DEV_IMAGE}
+
+WORKDIR /src
+COPY . /src
+
+RUN apt-get update && apt-get install -y --no-install-recommends ttyd \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN make clean >/dev/null 2>&1 || true; make
+RUN chmod +x display-screen/bridge/os-tty-session.sh display-screen/bridge/ttyd-serve.sh
+
+EXPOSE 7681
+ENV DISK_ROOT=/disk
+CMD ["bash", "display-screen/bridge/ttyd-serve.sh"]

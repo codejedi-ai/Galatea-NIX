@@ -1,141 +1,120 @@
 # Project structure
 
-Galatea-NIX is a layered OS/kernel for **AArch64** (Raspberry Pi), built with a bare-metal toolchain. The codebase uses **exactly five layers**; there are no separate `servers/`, `tc1/`, `ui/`, or `workers/` folders — those have been removed. Layer 3 contains system services; layer 4 contains applications and train logic (including shell and tc1 command parsing).
+**d273liu-nix** is a layered bare-metal **AArch64** microkernel for **Raspberry Pi 4
+(BCM2711)**. All kernel source lives under **`src/`**; the repo root holds build
+config, Docker, and scripts. Names and artifact filenames come from
+[`project.mk`](../project.mk).
 
 ---
 
-## Canonical folder layout
+## Canonical layout
 
 ```
-Galatea-NIX/
-├── Makefile
-├── linker.ld
+d273liu-nix/
+├── project.mk              # PROJECT_ID, PROJECT_NAME, kernel/docker names
+├── source_project.sh       # shell helper — sources vars from project.mk
+├── Makefile                # builds kernel ELF + flat .img from src/
 ├── README.md
-├── docs/                    # Documentation (this file, etc.)
-├── library/                 # Common utility functions for all layers
-├── calibrationdata/        # Train calibration data (optional)
-├── layer0-assembly/         # Boot and exception vectors
-├── layer1-processes/        # Process management: processes, syscalls, drivers
-├── layer2-messaging/        # Inter-process communication: message passing mechanisms
-├── layer3-services/         # System services (nameserver, clock, I/O, gameserver)
-└── layer4-application/      # Applications: shell, train control, track, tests
-    └── tests/               # Per-layer test framework and tests
+├── Dockerfile              # dev image (toolchain + QEMU raspi4b)
+├── Dockerfile.prod         # prod image (kernel baked in, serves browser screen @ 9090)
+├── dev.sh, prod.sh         # dev/prod drivers
+├── qemu-rpi4.sh, mkpi.sh, …
+├── docs/                   # documentation
+├── calibrationdata/        # optional train CSV (not linked into kernel)
+└── src/                    # ← all kernel code
+    ├── linker.ld           # link @ 0x80000 (Pi firmware load address)
+    ├── library/            # shared C utilities (math, string)
+    ├── layer0-assembly/    # boot, vectors, context switch (assembly)
+    ├── layer1-processes/   # kernel core: scheduler, syscalls, drivers, shell, VM
+    └── layer2-messaging/   # Send / Receive / Reply IPC
 ```
 
-**Removed (no longer used):** `layer2-services` (moved to layer3-services), `layer2-communication`, `tc1`, `ui`, `workers`, `layer3-application/startup-test`. Build artifacts that lived there are gone; source lives in the five layers above.
+**Not in the tree yet (roadmap):** `src/layer3-services/`, `src/layer4-application/`.
+See [OS_ROADMAP.md](OS_ROADMAP.md).
+
+**Removed / archived:** UEFI boot path, QEMU `virt` platform switch, old coursework
+folders. Historical notes: [docs/archive/](archive/).
 
 ---
 
-## Root
-
-| Item | Purpose |
-|------|--------|
-| **Makefile** | Builds the kernel: compiles layer0–layer3, links with `linker.ld`, produces `0-d273liu.elf` and `0-d273liu.img`. Targets: `all` (default), `clean`. |
-| **linker.ld** | Linker script. Sets entry to `_start` and places `.text.boot` at `0x80000`. |
-| **README.md** | Project overview and quick start. |
-
----
-
-## library
-
-**Role:** Common utility functions used across all layers.
+## Root (build & run)
 
 | File | Purpose |
-|------|--------|
-| **math.c / .h** | Mathematical utilities: `min_u64`, `max_u64`, `min_int`, `max_int`. |
-| **string.c / .h** | String utilities: `atoi_64`, `str_to_hex`, `strcmp_ret`, inline helpers `a2d`, `is_empty`, `is_hex`. |
+|------|---------|
+| **project.mk** | `PROJECT_ID`, `PROJECT_NAME`, `KERNEL_ELF`, `KERNEL_IMG`, Docker names. |
+| **Makefile** | Compiles `src/` layers, links with `src/linker.ld`, emits `$(KERNEL_IMG)`. |
+| **dev.sh** | Docker dev: `shell`, `build`, `test`, `run`, `pi`, `clean`. |
+| **prod.sh** | Web terminal: `up`, `down`, `build`, `logs`. |
 
-These are generic, reusable functions available to all layers via `-Ilibrary` include path.
+Build products at repo root (gitignored): `$(KERNEL_ELF)`, `$(KERNEL_IMG)`, `pi-boot/`.
 
 ---
 
-## layer0-assembly
+## src/library/
 
-**Role:** Lowest-level code: boot and exception handling in assembly.
+Shared C helpers (`-Isrc/library`).
 
 | File | Purpose |
-|------|--------|
-| **boot.S** | First code run: drops from EL2 to EL1 (if needed), disables MMU, sets up stack, jumps to C `kmain`. |
-| **asm.S** | Context switch and trap support: `Begin` (restore user context and ERET), register save/restore, `Save` / `ASYNCSave` for trap frames. |
-| **vector.S** | EL1 exception vector table: sync, IRQ, FIQ, SError handlers; calls C `Handle` / `HandleASYNC` for syscalls and async (e.g. timer, UART) interrupts. |
-
-Headers (e.g. `asm.h`) live in **layer1-processes** and declare the assembly entry points.
+|------|---------|
+| **math.c / .h** | `min_u64`, `max_u64`, `min_int`, `max_int`. |
+| **string.c / .h** | `atoi_64`, `str_to_hex`, `strcmp_ret`, `a2d`, `is_empty`, `is_hex`. |
 
 ---
 
-## layer1-processes
+## src/layer0-assembly/
 
-**Role:** Process management core: process/syscall handling, drivers, utilities. No application logic.
+Boot and exception handling.
 
 | File | Purpose |
-|------|--------|
-| **main.c** | `kmain`: system init, UART console only, creates nameserver, idle, clock server/notifier, and `first_user_task`; then `Schedule()`. |
-| **processes.c / .h** | `first_user_task`: minimal first user task (registers, prints "Kernel ready", yields). |
-| **syscall.c / .h** | Syscall dispatch (e.g. Create, Send, Receive, Reply, Yield, Exit), scheduler (priority heap), `Handle`/`HandleASYNC`, interrupt handling (timer, UART). |
-| **rpi.c / .h** | Raspberry Pi HW: GPIO, UART (console + optional second line), system timer registers. |
-| **gic.c / .h** | Generic Interrupt Controller: route, enable, ack, “active” interrupt state. |
-| **systimer.c / .h** | Kernel timer: `get_timerLO/HI`, `set_timerC3`, `clear_timer_status` for clock server. |
-| **malloc.c** | Kernel heap allocator (used for process stacks, etc.). |
-| **util.c / .h** | Helpers: `memset`, `memcpy`, `i2a`, `ui2a`, print helpers. |
-| **int64voodoo.c / .h** | 64-bit arithmetic / helpers. |
-| **debugprint.c** | Debug output helpers. |
-| **asm.h** | Declarations for assembly routines in layer0 (e.g. `Begin`, `Save`, `ASYNCSave`). |
+|------|---------|
+| **boot.S** | EL2→EL1, park secondary CPUs, stack, jump to `kmain`. |
+| **asm.S** | Context switch: `Begin`, save/restore, `Save` / `ASYNCSave`. |
+| **vector.S** | EL1 vector table → C `Handle` / `HandleASYNC`. |
+| **spinlock.S**, **syscalls.S** | Spinlock primitives, syscall stubs. |
+| **tests/** | Layer 0 tests, `test_framework`, `test_runner.c`. |
 
-The kernel does **not** start train services, shell, or I/O servers for the second UART; those belong in the application layer.
+Assembly API declarations (`asm.h`) live in **src/layer1-processes/**.
 
 ---
 
-## layer2-messaging
+## src/layer1-processes/
 
-**Role:** Inter-process communication mechanisms. **This is the messaging layer** — handles message passing between processes.
-
-| File | Purpose |
-|------|--------|
-| **message.c / .h** | Message passing infrastructure: `Send`, `Receive`, `Reply`, message queues. |
-| **ipc.c / .h** | Inter-process communication primitives and synchronization. |
-
-The messaging layer provides the foundation for communication between processes in higher layers. This layer is currently being implemented.
-
----
-
-## layer4-application
-
-**Role:** Applications and train control: shell, track/train logic, **tc1 command parsing**, and tests. **All of this lives here** — there is no separate `tc1/` or `ui/` folder.
+Kernel core.
 
 | Area | Files | Purpose |
-|------|--------|--------|
-| **Shell** | `shell.c`, `shell.h` | Command shell: prompts, parses commands, calls `tc1ExecuteCommands` (train commands). |
-| **Train control** | `train_control.c/.h`, `train_velocity.c/.h`, `train.h` | Train speed, reverse, sensor/delay stop, `stop_at`. |
-| **Track** | `track_server.c/.h`, `track_data_new.c/.h`, `track_node.h` | Track topology, sensors, switches, train state on track. |
-| **Marklin I/O** | `marklin_worker.c/.h` | Talks to Marklin hardware (trains/switches/sensors) via I/O servers. |
-| **TC1 commands** | `tc1tests.c/.h` | `tc1ExecuteCommands`: parses shell commands (e.g. `tr`, `sw`, `rv`, `delaystop`, `sensorstop`, `stopat`). |
-| **Navigation** | `goto.c`, `goto.h` | Pathfinding, “go to” node, `stop_at` logic. |
-| **Speed** | `speed_measuring.c/.h` | Speed/calibration measurement. |
-| **Tests** | `tests/test_runner.c/.h`, `test_framework.c/.h`, `layer0_tests.c` … `layer3_tests.c` (+ headers) | Per-layer test entry points and test framework. |
-
-Train services (marklin_worker, track_server, shell, tc1) are **not** started by the kernel; they are part of the application layer and would be started when running the full train application.
+|------|-------|---------|
+| **Boot** | `main.c` | `kmain`: UART, init, tests, shell. |
+| **Processes** | `processes.c`, `syscall.c` | Tasks, scheduler, syscalls, IRQs. |
+| **Drivers** | `rpi.c`, `gic.c`, `timer/systimer.c`, `mmio_config.h` | Pi 4 UART, GIC, timer. |
+| **Memory** | `malloc/`, `pmm.c`, `vmm.c` | Heap, frame pool, MMU (off by default). |
+| **Shell** | `shell.c`, `shell.h` | In-kernel serial shell. |
+| **Config** | `config.h`, `project.h` | Limits; `project.h` generated from `project.mk`. |
+| **tests/** | `tests/layer1_tests.c` | Layer 1 test suite. |
 
 ---
 
-## calibrationdata
+## src/layer2-messaging/
 
-**Role:** Calibration data for train behaviour (e.g. stopping distances, speed tests). Optional; not required for the kernel to build or run.
+IPC (QNX-style).
 
 | File | Purpose |
-|------|--------|
-| **Train Control_Part 1_Design process - raw data.csv** | Raw calibration data (e.g. stopping distances, speeds). |
+|------|---------|
+| **messaging.c / .h** | `Send`, `Receive`, `Reply`. |
+| **tests/layer2_tests.c** | IPC integration tests. |
 
 ---
 
-## Other directories
+## calibrationdata/
 
-- **.git/** — Version control (not part of build).
-- **.idea/**, **.vscode/** — IDE/editor config (not part of build).
+Optional CSV for train calibration. Not part of the kernel build.
 
 ---
 
-## Build products
+## docs/
 
-- **0-d273liu.elf** — Linked kernel executable (ELF).
-- **0-d273liu.img** — Binary image for loading (e.g. by U-Boot).
-- **\*.o**, **\*.d** — Object and dependency files under each layer (and base); removed by `make clean`.
+| Doc | Purpose |
+|-----|---------|
+| **structure.md** | This file. |
+| **RUN_ON_RPI.md** | Real hardware bring-up. |
+| **OS_ROADMAP.md** | Future layers and apps. |
+| **archive/** | Historical debugging write-ups. |

@@ -35,7 +35,7 @@ int Receive(int *tid, char *msg, int msglen);
  * @param replylen Length of reply
  * @return Reply length on success
  */
-int Reply(int tid, void *reply, int replylen);
+int Reply(int tid, const void *reply, int replylen);
 
 // Kernel-side message handling helpers
 // These are called by the syscall handler
