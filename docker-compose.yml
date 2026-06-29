@@ -1,0 +1,28 @@
+# Uses CS452ROTOS-PLATFORM from Docker Hub (see ../github_codejedi-ai_CS452ROTOS-PLATFORM)
+services:
+  galateaos:
+    image: ${DARCYOS_IMAGE:-codejedi-ai/cs452rotos-platform:latest}
+    pull_policy: missing
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      - XDIR=/opt/toolchain
+      - IN_DOCKER=1
+    stdin_open: true
+    tty: true
+    entrypoint: ["bash", "/workspace/scripts/container-run.sh"]
+    command: run
+
+  shell:
+    image: ${DARCYOS_IMAGE:-codejedi-ai/cs452rotos-platform:latest}
+    pull_policy: missing
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      - XDIR=/opt/toolchain
+      - IN_DOCKER=1
+    stdin_open: true
+    tty: true
+    command: shell
