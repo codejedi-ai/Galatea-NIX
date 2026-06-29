@@ -186,7 +186,7 @@ list:     read /var/gpkg/installed
 - The QEMU "VM" runs **inside the container** — `./dev.sh run` boots the kernel
   and the serial console becomes your interactive terminal (keyboard included).
   This is the practical "run the OS on my Mac" answer; no VMware needed.
-- `./dev.sh shell | build | run | test | clean` — portable, resolves the repo
+- `./dev.sh make | run | test` — portable, resolves the repo
   from the script location (works wherever the GitHub repo is cloned).
 - As userland appears, add targets to build the **app/libc tree** and assemble a
   **disk/initramfs image** the kernel can boot from — all inside the same

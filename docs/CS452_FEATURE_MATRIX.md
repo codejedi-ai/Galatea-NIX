@@ -74,7 +74,7 @@ gic_init() → UART IRQ 153 → io_notifier → UART1_CONSOLE_server → Console
 | Item | Value |
 |------|-------|
 | Image | `codejedi-ai/cs452rotos-platform:latest` |
-| Commands | `./dev.sh build-image` · `./dev.sh make all` · `./dev.sh run` · `./dev.sh shell` |
+| Commands | `./dev.sh build-image` · `./dev.sh make all` · `./dev.sh run` |
 
 ---
 

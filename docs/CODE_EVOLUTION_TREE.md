@@ -64,7 +64,7 @@ NIX platform layer (not in K-line yet)
 │
 DevOps unification (2026)
 ├── codejedi-ai/cs452rotos-platform:latest
-└── ./dev.sh make | run | shell (all active repos)
+└── ./dev.sh make | run | test (all active repos)
 ```
 
 ## Layout divergence
