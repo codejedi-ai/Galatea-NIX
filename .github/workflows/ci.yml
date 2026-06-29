@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull platform image
+        run: docker pull codejedi-ai/cs452rotos-platform:latest
+
+      - name: Build kernel
+        run: docker compose run --rm -T build
+
+      - name: QEMU smoke test
+        run: docker compose run --rm -T test
+        env:
+          QEMU_TIMEOUT: 30
